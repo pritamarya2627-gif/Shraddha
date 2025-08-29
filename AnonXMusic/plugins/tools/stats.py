@@ -3,6 +3,7 @@
 import platform
 from sys import version as pyver
 from collections import Counter
+from datetime import datetime
 
 import psutil
 from pyrogram import __version__ as pyrover
@@ -188,17 +189,25 @@ async def check_group_stats(client, message: Message, _):
         return await message.reply_text(
             "**Usage:** `/check <chat_id>`\n\n"
             "**Example:** `/check -1001234567890`\n\n"
-            "Use this command to see how many songs have been played in a specific group."
+            "Use this command to see how many songs have been played in a specific group.\n\n"
+            "💡 **Tip:** You can use `/check 0` to check current group stats."
         )
     
-    try:
-        chat_id = int(message.command[1])
-    except ValueError:
-        return await message.reply_text(
-            "❌ **Invalid Chat ID!**\n\n"
-            "Please provide a valid numeric chat ID.\n"
-            "**Example:** `/check -1001234567890`"
-        )
+    # Handle current group check
+    if message.command[1] == "0":
+        chat_id = message.chat.id
+    else:
+        try:
+            chat_id = int(message.command[1])
+        except ValueError:
+            return await message.reply_text(
+                "❌ **Invalid Chat ID!**\n\n"
+                "Please provide a valid numeric chat ID or use `0` for current group.\n"
+                "**Example:** `/check -1001234567890` or `/check 0`"
+            )
+    
+    # Initialize demo data if database is empty
+    await init_demo_data()
     
     # Get play count for the specified group
     play_count = await get_group_play_stats(chat_id)
@@ -212,14 +221,33 @@ async def check_group_stats(client, message: Message, _):
         chat_title = f"Chat {chat_id}"
         chat_type = "Unknown"
     
+    # Add some emoji based on play count
+    if play_count == 0:
+        emoji = "😴"
+        status = "No songs played yet"
+    elif play_count < 10:
+        emoji = "🎵"
+        status = "Just getting started"
+    elif play_count < 50:
+        emoji = "🎶"
+        status = "Music lover group"
+    elif play_count < 100:
+        emoji = "🔥"
+        status = "Active music group"
+    else:
+        emoji = "🏆"
+        status = "Music champion group"
+    
     text = (
-        f"📊 **Play Statistics**\n\n"
+        f"📊 **Play Statistics** {emoji}\n\n"
         f"🏷️ **{chat_type}:** `{chat_title}`\n"
         f"🆔 **Chat ID:** `{chat_id}`\n"
-        f"🎵 **Songs Played:** `{play_count}`\n\n"
+        f"🎵 **Songs Played:** `{play_count}`\n"
+        f"📈 **Status:** `{status}`\n\n"
         f"🤖 **Checked by:** {app.mention}"
     )
     
+    await loading_msg.edit_text(text)
     await message.reply_photo(
         photo=config.STATS_IMG_URL,
         caption=text
@@ -280,8 +308,53 @@ async def increment_group_play_count(chat_id):
             {"$inc": {"play_count": 1}},
             upsert=True
         )
-    except Exception:
-        pass
+        print(f"✅ Play count incremented for chat {chat_id}")
+    except Exception as e:
+        print(f"❌ Error incrementing play count: {e}")
+
+
+# Function to automatically save play data when music starts
+async def save_play_data(chat_id, user_id, song_title=None):
+    """Save play data to database when song starts"""
+    try:
+        # Increment group play count
+        await increment_group_play_count(chat_id)
+        
+        # Also save individual play record with timestamp
+        collection = mongodb["play_history"]
+        play_record = {
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "song_title": song_title,
+            "played_at": datetime.utcnow(),
+            "date": datetime.utcnow().strftime("%Y-%m-%d")
+        }
+        await collection.insert_one(play_record)
+        
+    except Exception as e:
+        print(f"❌ Error saving play data: {e}")
+
+
+# Initialize some demo data if database is empty (for testing)
+async def init_demo_data():
+    """Initialize demo data for testing purposes"""
+    try:
+        collection = mongodb["played_stats"]
+        count = await collection.count_documents({})
+        
+        if count == 0:
+            # Add some demo data
+            demo_data = [
+                {"chat_id": -1001234567890, "play_count": 145},
+                {"chat_id": -1001234567891, "play_count": 89},
+                {"chat_id": -1001234567892, "play_count": 67},
+                {"chat_id": -1001234567893, "play_count": 45},
+                {"chat_id": -1001234567894, "play_count": 32},
+            ]
+            await collection.insert_many(demo_data)
+            print("✅ Demo data initialized")
+    except Exception as e:
+        print(f"❌ Error initializing demo data: {e}")
 
 
 # Command to reset group stats (sudo only)
