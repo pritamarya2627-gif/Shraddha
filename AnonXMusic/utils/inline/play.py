@@ -1,8 +1,7 @@
 import math
-import time
-from datetime import datetime
-from random import choice
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+from pyrogram.types import InlineKeyboardButton
+
 from AnonXMusic.utils.formatters import time_to_seconds
 
 
@@ -28,25 +27,35 @@ def track_markup(_, videoid, user_id, channel, fplay):
     return buttons
 
 
-def get_time_stamp():
-    """Get current timestamp for unique callbacks"""
-    return int(datetime.utcnow().timestamp() * 1000)
-
-
-def create_bar(played_sec, duration_sec):
-    """Create enhanced progress bar with dynamic elements"""
-    if duration_sec <= 0:
-        return "━━━━━━━━━⚪"
+def stream_markup_timer(_, chat_id, played, dur):
+    played_sec = time_to_seconds(played)
+    duration_sec = time_to_seconds(dur)
+    percentage = (played_sec / duration_sec) * 100
+    anon = math.floor(percentage)
+    if 0 < anon <= 10:
+        ba = "⚪─────────"
+    elif 10 < anon < 20:
+        ba = "━⚪────────"
+    elif 20 <= anon < 30:
+        ba = "━━⚪───────"
+    elif 30 <= anon < 40:
+        ba = "━━━⚪──────"
+    elif 40 <= anon < 50:
+        ba = "━━━━⚪─────"
+    elif 50 <= anon < 60:
+        ba = "━━━━━⚪────"
+    elif 60 <= anon < 70:
+        ba = "━━━━━━⚪───"
+    elif 70 <= anon < 80:
+        ba = "━━━━━━━⚪──"
+    elif 80 <= anon < 95:
+        ba = "━━━━━━━━⚪─"
+    else:
+        ba = "━━━━━━━━━⚪﻿"
+##bar of wynk---------------------------------------
     
-    position = math.floor((played_sec / duration_sec) * 10)
-    position = min(position, 9)
     
-    # Dynamic progress bar with pulsing effect
-    filled = "━" * position
-    current = "⚪"
-    remaining = "─" * (9 - position)
     
-    return f"{filled}{current}{remaining}"
     buttons = [
         [
             InlineKeyboardButton(
