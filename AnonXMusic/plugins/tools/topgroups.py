@@ -2,11 +2,12 @@ import asyncio
 from datetime import datetime, timedelta
 from pyrogram import filters
 from pyrogram.types import Message
+from pyrogram.enums import ParseMode
 
 import config
 from AnonXMusic import app
 from AnonXMusic.misc import SUDOERS
-from AnonXMusic.utils.database import get_top_groups_by_requests, get_served_chats
+from AnonXMusic.utils.database import get_top_groups_by_requests, get_served_chats, get_group_request_stats
 from AnonXMusic.utils.decorators.language import language
 from config import BANNED_USERS
 
@@ -16,7 +17,7 @@ async def top_groups_command(client, message: Message, _):
     """Show top 10 groups by song requests"""
     
     # Send initial message
-    msg = await message.reply_text("🔍 **Fetching top groups data...**")
+    msg = await message.reply_text("🔍 <b>Fetching top groups data...</b>", parse_mode=ParseMode.HTML)
     
     try:
         # Get top groups from database
@@ -24,30 +25,39 @@ async def top_groups_command(client, message: Message, _):
         
         if not top_groups:
             return await msg.edit_text(
-                "❌ **No group statistics found!**\n\n"
-                "*Groups need to request songs to appear in rankings.*"
+                "<blockquote>❌ <b>No group statistics found!</b>\n\n<i>Groups need to request songs to appear in rankings.</i></blockquote>",
+                parse_mode=ParseMode.HTML
             )
         
-        # Build the ranking message
-        text = f"🏆 **TOP 10 GROUPS BY SONG REQUESTS**\n\n"
-        text += f"📊 **Ranked by total song requests**\n"
-        text += f"🎵 **Bot:** {app.mention}\n\n"
+        # Build the ranking message with HTML formatting
+        text = f"<blockquote>🏆 <b>TOP 10 GROUPS BY SONG REQUESTS</b>\n\n"
+        text += f"📊 <b>Ranked by total song requests</b>\n"
+        text += f"🎵 <b>Bot:</b> {app.mention}\n\n"
         
         # Add rankings
         for i, group in enumerate(top_groups, 1):
             chat_id = group.get("chat_id", "Unknown")
             chat_title = group.get("chat_title", "Unknown Group")
+            chat_username = group.get("chat_username", None)
             total_requests = group.get("total_requests", 0)
             last_request = group.get("last_request")
             last_query = group.get("last_query", "Unknown")
             
-            # Truncate long group names
-            if len(chat_title) > 25:
-                chat_title = chat_title[:22] + "..."
+            # Escape HTML characters in group title
+            chat_title_escaped = chat_title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            
+            # Create group link if username exists, otherwise just show name
+            if chat_username and not str(chat_username).startswith("None"):
+                group_link = f'<a href="https://t.me/{chat_username}"><b>{chat_title_escaped}</b></a>'
+            else:
+                group_link = f"<b>{chat_title_escaped}</b>"
+            
+            # Escape HTML in query
+            last_query_escaped = last_query.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             
             # Truncate long queries
-            if len(last_query) > 20:
-                last_query = last_query[:17] + "..."
+            if len(last_query_escaped) > 20:
+                last_query_escaped = last_query_escaped[:17] + "..."
             
             # Format last request time
             if last_request:
@@ -82,49 +92,75 @@ async def top_groups_command(client, message: Message, _):
             elif i == 3:
                 emoji = "🥉"
             else:
-                emoji = f"{i}."
+                emoji = f"<b>{i}.</b>"
             
-            text += f"{emoji} **{chat_title}**\n"
-            text += f"    ├ 🎵 Requests: `{total_requests:,}`\n"
-            text += f"    ├ 🎤 Last Song: `{last_query}`\n"
-            text += f"    └ ⏰ Last Active: `{time_str}`\n\n"
+            text += f"{emoji} {group_link}\n"
+            text += f"    ├ <b>🎵 Requests:</b> <code>{total_requests:,}</code>\n"
+            text += f"    ├ <b>🎤 Last Song:</b> <code>{last_query_escaped}</code>\n"
+            text += f"    └ <b>⏰ Last Active:</b> <code>{time_str}</code>\n\n"
         
         # Add footer
         try:
             total_served = len(await get_served_chats())
-            text += f"📈 **Total Served Groups:** `{total_served:,}`\n"
+            text += f"<b>📈 Total Served Groups:</b> <code>{total_served:,}</code>\n"
         except:
-            text += f"📈 **Active Groups:** `{len(top_groups)}`\n"
+            text += f"<b>📈 Active Groups:</b> <code>{len(top_groups)}</code>\n"
         
-        text += f"🔄 **Updated:** `{datetime.now().strftime('%d/%m/%Y %H:%M')}`\n"
-        text += f"💡 **Tip:** Use `/stats` for bot statistics"
+        text += f"<b>🔄 Updated:</b> <code>{datetime.now().strftime('%d/%m/%Y %H:%M')}</code>\n"
+        text += f"<b>💡 Tip:</b> Use <code>/check &lt;chat_id&gt;</code> to check specific group stats</blockquote>"
         
         # Send the ranking
-        await msg.edit_text(text, disable_web_page_preview=True)
+        await msg.edit_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=False)
         
     except Exception as e:
         await msg.edit_text(
-            f"❌ **Error occurred while fetching data!**\n\n"
-            f"**Error:** `{str(e)}`\n\n"
-            f"*Please try again later or contact support.*"
+            f"<blockquote>❌ <b>Error occurred while fetching data!</b>\n\n"
+            f"<b>Error:</b> <code>{str(e)}</code>\n\n"
+            f"<i>Please try again later or contact support.</i></blockquote>",
+            parse_mode=ParseMode.HTML
         )
 
-# Optional: Add a detailed group stats command for admins/sudoers
-@app.on_message(filters.command(["groupstats"]) & filters.group & ~BANNED_USERS)
+@app.on_message(filters.command(["check"]) & ~BANNED_USERS)
 @language
-async def group_stats_command(client, message: Message, _):
-    """Show detailed stats for current group"""
+async def check_group_command(client, message: Message, _):
+    """Check specific group statistics by chat ID"""
     
-    if message.from_user.id not in SUDOERS:
-        return await message.reply_text("❌ **This command is only for sudo users.**")
+    # Check if chat ID is provided
+    if len(message.text.split()) < 2:
+        return await message.reply_text(
+            "<blockquote>❌ <b>Usage Error!</b>\n\n"
+            "<b>Usage:</b> <code>/check &lt;chat_id&gt;</code>\n"
+            "<b>Example:</b> <code>/check -1001234567890</code>\n\n"
+            "<b>💡 Tip:</b> Use <code>/topgc</code> to see top groups with their IDs</blockquote>",
+            parse_mode=ParseMode.HTML
+        )
     
     try:
-        from AnonXMusic.utils.database import get_group_request_stats
-        
-        stats = await get_group_request_stats(message.chat.id)
+        chat_id = int(message.text.split()[1])
+    except ValueError:
+        return await message.reply_text(
+            "<blockquote>❌ <b>Invalid Chat ID!</b>\n\n"
+            "<b>Please provide a valid numeric chat ID</b>\n"
+            "<b>Example:</b> <code>/check -1001234567890</code></blockquote>",
+            parse_mode=ParseMode.HTML
+        )
+    
+    # Send loading message
+    msg = await message.reply_text(
+        f"<blockquote>🔍 <b>Checking group data for:</b> <code>{chat_id}</code>...</blockquote>", 
+        parse_mode=ParseMode.HTML
+    )
+    
+    try:
+        stats = await get_group_request_stats(chat_id)
         
         if not stats:
-            return await message.reply_text("❌ **No statistics found for this group.**")
+            return await msg.edit_text(
+                f"<blockquote>❌ <b>No statistics found!</b>\n\n"
+                f"<b>Chat ID:</b> <code>{chat_id}</code>\n\n"
+                f"<i>This group has not made any song requests yet.</i></blockquote>",
+                parse_mode=ParseMode.HTML
+            )
         
         # Get today's requests
         today = datetime.now().strftime("%Y-%m-%d")
@@ -139,16 +175,110 @@ async def group_stats_command(client, message: Message, _):
             top_user_id = "Unknown"
             top_user_requests = 0
         
-        text = f"📊 **GROUP STATISTICS**\n\n"
-        text += f"🏷 **Group:** {stats.get('chat_title', 'Unknown')}\n"
-        text += f"🆔 **Chat ID:** `{stats.get('chat_id')}`\n\n"
-        text += f"🎵 **Total Requests:** `{stats.get('total_requests', 0):,}`\n"
-        text += f"📅 **Today's Requests:** `{today_requests}`\n"
-        text += f"👑 **Top User ID:** `{top_user_id}` (`{top_user_requests}` requests)\n\n"
-        text += f"🎤 **Last Song:** `{stats.get('last_query', 'Unknown')}`\n"
-        text += f"⏰ **Last Request:** `{stats.get('last_request', 'Unknown')}`"
+        # Create group link if username exists
+        chat_username = stats.get("chat_username", None)
+        chat_title = stats.get("chat_title", "Unknown Group")
         
-        await message.reply_text(text, disable_web_page_preview=True)
+        # Escape HTML characters
+        chat_title_escaped = chat_title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        last_query_escaped = stats.get('last_query', 'Unknown').replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        
+        if chat_username and not str(chat_username).startswith("None"):
+            group_link = f'<a href="https://t.me/{chat_username}"><b>{chat_title_escaped}</b></a>'
+        else:
+            group_link = f"<b>{chat_title_escaped}</b>"
+        
+        # Format last request time
+        last_request = stats.get("last_request")
+        if last_request:
+            try:
+                if isinstance(last_request, str):
+                    time_str = "Recently"
+                else:
+                    now = datetime.now()
+                    diff = now - last_request
+                    
+                    if diff.days > 0:
+                        time_str = f"{diff.days} days ago"
+                    elif diff.seconds > 3600:
+                        hours = diff.seconds // 3600
+                        time_str = f"{hours} hours ago"
+                    elif diff.seconds > 60:
+                        minutes = diff.seconds // 60
+                        time_str = f"{minutes} minutes ago"
+                    else:
+                        time_str = "Just now"
+            except:
+                time_str = "Unknown"
+        else:
+            time_str = "Unknown"
+        
+        text = f"<blockquote>📊 <b>GROUP STATISTICS</b>\n\n"
+        text += f"<b>🏷 Group:</b> {group_link}\n"
+        text += f"<b>🆔 Chat ID:</b> <code>{chat_id}</code>\n\n"
+        text += f"<b>🎵 Total Requests:</b> <code>{stats.get('total_requests', 0):,}</code>\n"
+        text += f"<b>📅 Today's Requests:</b> <code>{today_requests}</code>\n"
+        text += f"<b>👑 Top User ID:</b> <code>{top_user_id}</code> (<code>{top_user_requests}</code> requests)\n\n"
+        text += f"<b>🎤 Last Song:</b> <code>{last_query_escaped}</code>\n"
+        text += f"<b>⏰ Last Request:</b> <code>{time_str}</code>\n\n"
+        text += f"<b>🔄 Checked:</b> <code>{datetime.now().strftime('%d/%m/%Y %H:%M')}</code></blockquote>"
+        
+        await msg.edit_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=False)
         
     except Exception as e:
-        await message.reply_text(f"❌ **Error:** `{str(e)}`")
+        await msg.edit_text(
+            f"<blockquote>❌ <b>Error occurred while checking group!</b>\n\n"
+            f"<b>Chat ID:</b> <code>{chat_id}</code>\n"
+            f"<b>Error:</b> <code>{str(e)}</code></blockquote>",
+            parse_mode=ParseMode.HTML
+        )
+
+# Optional: Add a detailed group stats command for current group
+@app.on_message(filters.command(["groupstats"]) & filters.group & ~BANNED_USERS)
+@language
+async def group_stats_command(client, message: Message, _):
+    """Show detailed stats for current group"""
+    
+    try:        
+        stats = await get_group_request_stats(message.chat.id)
+        
+        if not stats:
+            return await message.reply_text(
+                "<blockquote>❌ <b>No statistics found for this group.</b>\n\n"
+                "<i>Start requesting songs to generate statistics!</i></blockquote>",
+                parse_mode=ParseMode.HTML
+            )
+        
+        # Get today's requests
+        today = datetime.now().strftime("%Y-%m-%d")
+        today_requests = stats.get("daily_requests", {}).get(today, 0)
+        
+        # Get top user
+        top_users = stats.get("top_users", {})
+        if top_users:
+            top_user_id = max(top_users.keys(), key=lambda x: top_users[x])
+            top_user_requests = top_users[top_user_id]
+        else:
+            top_user_id = "Unknown"
+            top_user_requests = 0
+        
+        # Escape HTML characters
+        group_title_escaped = message.chat.title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        last_query_escaped = stats.get('last_query', 'Unknown').replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        
+        text = f"<blockquote>📊 <b>CURRENT GROUP STATISTICS</b>\n\n"
+        text += f"<b>🏷 Group:</b> <b>{group_title_escaped}</b>\n"
+        text += f"<b>🆔 Chat ID:</b> <code>{message.chat.id}</code>\n\n"
+        text += f"<b>🎵 Total Requests:</b> <code>{stats.get('total_requests', 0):,}</code>\n"
+        text += f"<b>📅 Today's Requests:</b> <code>{today_requests}</code>\n"
+        text += f"<b>👑 Top User ID:</b> <code>{top_user_id}</code> (<code>{top_user_requests}</code> requests)\n\n"
+        text += f"<b>🎤 Last Song:</b> <code>{last_query_escaped}</code>\n"
+        text += f"<b>⏰ Last Request:</b> <code>{stats.get('last_request', 'Unknown')}</code></blockquote>"
+        
+        await message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        
+    except Exception as e:
+        await message.reply_text(
+            f"<blockquote>❌ <b>Error:</b> <code>{str(e)}</code></blockquote>", 
+            parse_mode=ParseMode.HTML
+        )
