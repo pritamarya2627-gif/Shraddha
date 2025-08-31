@@ -73,12 +73,55 @@ def stream_markup_timer(_, chat_id, played, dur):
     ]
     return buttons
 
-
-def stream_markup(_, chat_id):
-    # buttons = [
-    #     [InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")],
-    # ]
+def stream_markup(_, chat_id, played, dur):
+    played_sec = time_to_seconds(played)
+    duration_sec = time_to_seconds(dur)
+    percentage = (played_sec / duration_sec) * 100
+    anon = math.floor(percentage)
+    
+    progress_bars = [
+        "⚪─────────", "━⚪────────", "━━⚪───────", "━━━⚪──────", "━━━━⚪─────",
+        "━━━━━⚪────", "━━━━━━⚪───", "━━━━━━━⚪──", "━━━━━━━━⚪─", "━━━━━━━━━⚪﻿"
+    ]
+    
+    ba = progress_bars[min(anon // 10, 9)]
+##bar of wynk---------------------------------------
+    
+    
+    
+    buttons = [
+        [
+            InlineKeyboardButton(
+                text=f"{played} {ba} {dur}",
+                callback_data="GetTimer",
+            )
+        ],
+        [
+            InlineKeyboardButton(text="◁ 20s", callback_data=f"seekback {chat_id} 20"),
+            InlineKeyboardButton(text="10s", callback_data=f"seekback {chat_id} 10"),
+            # InlineKeyboardButton(text="❚❚", callback_data=f"ADMIN Pause|{chat_id}"),
+            InlineKeyboardButton(text="10s", callback_data=f"seek {chat_id} 10"),
+            InlineKeyboardButton(text="20s ▷", callback_data=f"seek {chat_id} 20"),
+        ],
+        [
+            InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close"), 
+            InlineKeyboardButton(
+                text="Skip", callback_data=f"ADMIN Skip|{chat_id}"
+            ),
+        ],
+        
+        # [
+        #     InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close"), 
+        # ],
+    ]
     return buttons
+
+
+# def stream_markup(_, chat_id):
+#     # buttons = [
+#     #     [InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close")],
+#     # ]
+#     return buttons
 
 
 def playlist_markup(_, videoid, user_id, ptype, channel, fplay):
